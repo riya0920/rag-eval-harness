@@ -1,0 +1,28 @@
+name: retrieval-eval
+
+on: [push, pull_request]
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Unit tests
+        run: pytest
+      - name: Retrieval eval gate
+        # Fails the build if recall@5 or MRR drops more than 2 points against
+        # eval/baseline.json. Deterministic, no API calls, runs in seconds.
+        run: PYTHONPATH=src python -m ragkit.experiment gate
+      - name: Prove the gate has teeth
+        # Inverted check: the gate MUST fail on a deliberately degraded retriever.
+        # A gate that never fails is not a gate, and this step is what keeps it honest.
+        run: |
+          if PYTHONPATH=src python -m ragkit.experiment gate --plant-regression; then
+            echo "::error::gate passed a planted regression -- the eval gate is broken"
+            exit 1
+          fi
+          echo "gate correctly rejected the planted regression"

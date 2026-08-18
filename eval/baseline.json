@@ -1,0 +1,10 @@
+{
+  "metrics": {
+    "recall@5": 0.9111111111111111,
+    "mrr": 0.9144444444444445
+  },
+  "config": {
+    "mode": "hybrid",
+    "target_tokens": 80
+  }
+}
