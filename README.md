@@ -22,43 +22,17 @@ project's own headline comparison is inside the noise band.
 ## Run it
 
 ```bash
-pip install -r requirements.txt        # numpy + pytest. That is the whole dependency list.
-make test                              # 17 unit tests
+pip install -r requirements.txt        # numpy + scipy + pytest. That is the whole list.
+make test                              # 28 unit tests
 make matrix                            # sweep 3 retrieval modes x 3 chunk sizes
 make gate                              # exit 0 -- no regression vs eval/baseline.json
 make demo                              # exit 1 -- the gate catching a planted regression
+make generation                        # faithfulness, coverage, refusal, cost
+make judge                             # agreement + kappa vs eval/human_labels.jsonl
 ```
 
 There are no API keys and no network calls. The eval runs in about a second,
 which is the only reason it can plausibly sit on every PR.
-
-## The experiment matrix
-
-35 golden examples, 27 of them labelled with relevant documents.
-
-| run | chunks | recall@5 | mrr | ndcg@10 | r@5 factual | r@5 multi-hop | r@5 ambiguous | ms/query |
-|---|---|---|---|---|---|---|---|---|
-| bm25_chunk40 | 65 | 0.872 | 0.917 | 0.880 | 1.000 | 0.867 | 0.625 | 0.11 |
-| bm25_chunk80 | 25 | 0.883 | 0.900 | 0.886 | 1.000 | 0.900 | 0.625 | 0.08 |
-| bm25_chunk160 | 24 | 0.917 | 0.900 | 0.888 | 1.000 | 1.000 | 0.625 | 0.08 |
-| dense_chunk40 | 65 | 0.872 | 0.871 | 0.857 | 1.000 | 0.867 | 0.625 | 0.36 |
-| dense_chunk80 | 25 | 0.911 | 0.914 | 0.910 | 1.000 | 0.950 | 0.708 | 0.23 |
-| dense_chunk160 | 24 | 0.900 | 0.908 | 0.902 | 1.000 | 0.950 | 0.625 | 0.36 |
-| hybrid_chunk40 | 65 | 0.872 | 0.921 | 0.888 | 1.000 | 0.867 | 0.625 | 0.49 |
-| hybrid_chunk80 | 25 | 0.911 | 0.914 | 0.905 | 1.000 | 0.950 | **0.708** | 0.35 |
-| hybrid_chunk160 | 24 | 0.900 | 0.908 | 0.902 | 1.000 | 0.950 | 0.625 | 0.29 |
-
-**How to read this table, stated by the person who produced it:** the factual
-column is saturated at 1.000 for every configuration, so the overall average is
-mostly measuring an easy category. `bm25_chunk160` tops the overall column by
-0.017 recall@5, which on 27 labelled examples is **well inside the ±0.058
-standard error** — it is not a real difference and I would not ship a retrieval
-decision on it. The columns that actually discriminate are multi-hop and
-ambiguous. Full argument in [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
-
-The gate therefore pins `hybrid @ 80 tokens` rather than the nominal "winner":
-it is tied on the noisy overall metric and best on the one category that
-separates configurations.
 
 ## The judge is validated, and the validation found a blind spot
 
@@ -178,6 +152,10 @@ With 88 labelled examples the standard error near 0.95 is about 0.023, so the
 0.003 spread across the top four rows is **still inside the noise** — the larger
 golden set narrowed the band but did not make these configurations separable.
 The factual column remains saturated at 1.000; ambiguous is where they differ.
+
+The gate pins `hybrid @ 80 tokens` rather than the nominal winner: it is tied on
+the noisy overall metric and best on the one category that separates
+configurations.
 
 **A tokenizer bug the generation work exposed:** the token pattern deliberately
 keeps `.` so that `$0.045` survives, which also meant a sentence-final period
