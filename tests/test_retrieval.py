@@ -163,3 +163,130 @@ def test_hybrid_matches_a_fact_the_lexical_query_words_do_not_contain():
     r = HybridRetriever(chunks, embedder=build_default_embedder(chunks), mode="hybrid")
     docs = chunks_to_docs([cid for cid, _ in r.search("how long until a session credential stops working", 10)])
     assert "doc:auth-tokens" in docs[:3]
+
+
+# --------------------------------------------------------------------------
+# generation, cost, and the judge
+# --------------------------------------------------------------------------
+
+def test_golden_set_meets_the_spec_floor():
+    """~100 examples with all four categories represented."""
+    from collections import Counter
+
+    g = load_golden()
+    assert len(g) >= 100, "spec asks for ~100 examples, have %d" % len(g)
+    counts = Counter(e["category"] for e in g)
+    for cat in ("factual", "multi-hop", "unanswerable", "ambiguous"):
+        assert counts[cat] >= 10, "%s has only %d" % (cat, counts[cat])
+
+
+def test_extractive_generator_refuses_when_context_is_irrelevant():
+    from ragkit.chunking import Chunk
+    from ragkit.generation import ExtractiveGenerator
+
+    gen = ExtractiveGenerator(min_overlap=2)
+    chunks = [Chunk("d#0", "d", "Bananas are yellow and grow in bunches.", 0)]
+    answer = gen.generate("What is the audit log retention period?", chunks)
+    assert answer.refused
+
+
+def test_extractive_answers_are_faithful_by_construction():
+    """The control property: a copy-paste generator must score ~1.0.
+
+    If the faithfulness metric cannot score verbatim extraction highly, the
+    metric is broken, not the generator.
+    """
+    from ragkit.chunking import load_chunks
+    from ragkit.generation import ExtractiveGenerator
+    from ragkit.judge import faithfulness
+
+    chunks = load_chunks(CORPUS, target_tokens=80)
+    ctx = [c for c in chunks if c.doc_id == "doc:audit-log"]
+    gen = ExtractiveGenerator()
+    ans = gen.generate("How long are audit log entries retained?", ctx)
+    result = faithfulness(ans.text, [c.text for c in ctx])
+    assert result.score == 1.0
+
+
+def test_faithfulness_catches_an_injected_fabrication():
+    from ragkit.judge import faithfulness
+
+    context = ["Audit log entries are immutable and retained for 400 days."]
+    honest = "Audit log entries are immutable and retained for 400 days."
+    lying = honest + " Entries can be edited by an administrator within 24 hours."
+    assert faithfulness(honest, context).score == 1.0
+    assert faithfulness(lying, context).score < 1.0
+
+
+def test_claim_must_be_supported_by_a_SINGLE_chunk():
+    """A claim stitched from fragments of different chunks is a fabrication."""
+    from ragkit.judge import claim_supported
+
+    chunks = ["The Scale tier costs $2,500 per month.", "GPU workloads run in us-east-2."]
+    stitched = "The Scale tier GPU workloads cost $2,500 in us-east-2 per month."
+    assert not claim_supported(stitched, chunks, threshold=0.9)
+
+
+def test_key_point_coverage_scores_missing_facts():
+    from ragkit.judge import key_point_coverage
+
+    result = key_point_coverage("Session tokens expire after 12 hours.",
+                                ["12 hours", "cannot be renewed"])
+    assert result["n_points"] == 2
+    assert result["covered"] == 1
+    assert "cannot be renewed" in result["missing"]
+
+
+def test_refusal_correctness_by_category():
+    from ragkit.judge import refusal_correct
+
+    assert refusal_correct(True, "unanswerable")
+    assert not refusal_correct(False, "unanswerable")
+    assert refusal_correct(False, "factual")
+    assert not refusal_correct(True, "factual")
+
+
+def test_cohens_kappa_punishes_a_degenerate_judge():
+    """A judge that always says one label agrees often but knows nothing."""
+    from ragkit.judge import cohens_kappa
+
+    human = ["faithful"] * 90 + ["unfaithful"] * 10
+    always_faithful = ["faithful"] * 100
+    assert cohens_kappa(human, always_faithful) == 0.0 or cohens_kappa(human, always_faithful) < 0.01
+
+    perfect = list(human)
+    assert cohens_kappa(human, perfect) == 1.0
+
+
+def test_cache_key_includes_the_context_not_just_the_question():
+    """Otherwise a corpus update silently serves a stale answer."""
+    from ragkit.generation import ResponseCache
+
+    a = ResponseCache.key("what is the limit?", ["doc:a#0"])
+    b = ResponseCache.key("what is the limit?", ["doc:b#0"])
+    assert a != b
+
+
+def test_cost_tracker_does_not_bill_cache_hits():
+    from ragkit.generation import CostTracker
+
+    t = CostTracker()
+    t.record(1000, 100, cached=False)
+    first = t.cost_usd
+    t.record(1000, 100, cached=True)
+    assert t.cost_usd == first
+    assert t.summary()["cache_hits"] == 1
+    assert t.summary()["billed_calls"] == 1
+
+
+def test_second_identical_call_is_served_from_cache():
+    from ragkit.chunking import Chunk
+    from ragkit.generation import CachedGenerator, CostTracker, ExtractiveGenerator, ResponseCache
+
+    chunks = [Chunk("d#0", "d", "The retention period is 400 days for audit entries.", 0)]
+    gen = CachedGenerator(ExtractiveGenerator(), ResponseCache(), CostTracker())
+    first = gen.generate("What is the retention period?", chunks)
+    second = gen.generate("What is the retention period?", chunks)
+    assert not first.cached and second.cached
+    assert second.text == first.text
+    assert gen.tracker.summary()["billed_calls"] == 1

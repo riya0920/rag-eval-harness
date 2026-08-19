@@ -1,0 +1,42 @@
+{"id": "f001", "human_faithful": "faithful", "note": "correct on 12h/no-renewal; trailing sentence about revision manifests is irrelevant but still drawn from context"}
+{"id": "f002", "human_faithful": "faithful", "note": "all three tiers quoted correctly"}
+{"id": "f004", "human_faithful": "faithful", "note": "Cold 90-day minimum and 3-5h restore both correct"}
+{"id": "f007", "human_faithful": "faithful", "note": "RELABELLED: originally 'refused'. The tokenizer fix (trailing punctuation) changed retrieval and the system now answers correctly with the 1-hour S2 target. Human labels go stale when the system under test changes -- that is a real cost of judge validation, not a one-off"}
+{"id": "m003", "human_faithful": "faithful", "note": "correctly reasons the 30h case past the 24h warm window"}
+{"id": "m009", "human_faithful": "faithful", "note": "idempotency and no-rollback both correct"}
+{"id": "u003", "human_faithful": "refused", "note": "correct refusal - no latency-by-city data exists"}
+{"id": "u005", "human_faithful": "faithful", "note": "answered rather than refused, but the answer (cannot restore a single table) is correct and grounded"}
+{"id": "f016", "human_faithful": "faithful", "note": "two approvers correct"}
+{"id": "f021", "human_faithful": "faithful", "note": "$0.02/GB and writes-unsupported both correct"}
+{"id": "f025", "human_faithful": "faithful", "note": "five-minute granularity, seven-day lookback correct"}
+{"id": "f027", "human_faithful": "faithful", "note": "20 minutes under 100GB, linear scaling"}
+{"id": "f029", "human_faithful": "faithful", "note": "15 minutes correct"}
+{"id": "f030", "human_faithful": "faithful", "note": "outbound TLS, no inbound rule"}
+{"id": "f032", "human_faithful": "faithful", "note": "25% correct; second sentence about service keys is irrelevant filler"}
+{"id": "f033", "human_faithful": "faithful", "note": "double capacity correct"}
+{"id": "f034", "human_faithful": "faithful", "note": "24h warm window correct"}
+{"id": "f040", "human_faithful": "faithful", "note": "S1/S2 phone-only correct"}
+{"id": "f042", "human_faithful": "refused", "note": "WRONG refusal - the 30-day claim window is in doc:sla"}
+{"id": "f045", "human_faithful": "faithful", "note": "100 workloads correct"}
+{"id": "f053", "human_faithful": "faithful", "note": "English and Japanese, 24/7"}
+{"id": "f055", "human_faithful": "faithful", "note": "5 TB, 10 concurrent jobs"}
+{"id": "f056", "human_faithful": "faithful", "note": "object_key correct"}
+{"id": "m016", "human_faithful": "faithful", "note": "24h window and manifest retention both correct"}
+{"id": "m017", "human_faithful": "faithful", "note": "13 months is correctly implied as short of two years"}
+{"id": "m018", "human_faithful": "faithful", "note": "emergency maintenance excluded from SLA"}
+{"id": "u012", "human_faithful": "faithful", "note": "NON-RESPONSIVE: asked about Kubernetes, answered about refunds. Every claim is still grounded in the corpus, so it is faithful-but-useless. This is the case that shows faithfulness alone is not quality"}
+{"id": "u013", "human_faithful": "refused", "note": "correct refusal - German support is not documented"}
+{"id": "u015", "human_faithful": "faithful", "note": "no rollback for a completed import - correct"}
+{"id": "a008", "human_faithful": "refused", "note": "reasonable refusal on an ambiguous question with no named object"}
+{"id": "f003", "human_faithful": "unfaithful", "inject_fabrication": "GPU workloads are also available in ap-south-1 and sa-east-1 for enterprise customers.", "note": "ADVERSARIAL: fabricated extra GPU regions, contradicts doc:regions"}
+{"id": "f005", "human_faithful": "unfaithful", "inject_fabrication": "The control-plane limit can be raised to 5,000 requests per minute on request.", "note": "ADVERSARIAL: invented a limit-raising policy that appears nowhere"}
+{"id": "f006", "human_faithful": "unfaithful", "inject_fabrication": "Audit log entries can be edited by an organisation administrator within 24 hours.", "note": "ADVERSARIAL: directly contradicts the immutability claim"}
+{"id": "f010", "human_faithful": "unfaithful", "inject_fabrication": "Each tunnel agent instance also caches up to 4 GB of payload data locally.", "note": "ADVERSARIAL: invented a caching feature"}
+{"id": "f012", "human_faithful": "unfaithful", "inject_fabrication": "Regular expression search is available as a paid add-on for Scale customers.", "note": "ADVERSARIAL: contradicts the no-regex statement"}
+{"id": "f019", "human_faithful": "unfaithful", "inject_fabrication": "This limit is shared across all projects in the organisation.", "note": "ADVERSARIAL: contradicts per-project scoping"}
+{"id": "f024", "human_faithful": "unfaithful", "inject_fabrication": "Backups can be rescheduled to any hour via the console.", "note": "ADVERSARIAL: invented a scheduling control"}
+{"id": "f036", "human_faithful": "unfaithful", "inject_fabrication": "The series limit is raised to 5,000 automatically during incidents.", "note": "ADVERSARIAL: invented automatic limit escalation"}
+{"id": "f041", "human_faithful": "unfaithful", "inject_fabrication": "Credits below 99.0% uptime are paid out in cash within 14 days.", "note": "ADVERSARIAL: contradicts never-paid-in-cash"}
+{"id": "f048", "human_faithful": "unfaithful", "inject_fabrication": "Preemptible workloads receive a 50% SLA credit when reclaimed.", "note": "ADVERSARIAL: contradicts preemptible-not-eligible"}
+{"id": "m008", "human_faithful": "unfaithful", "inject_fabrication": "Adding a second organisation-scoped key doubles the available quota.", "note": "ADVERSARIAL: contradicts per-organisation limits"}
+{"id": "f050", "human_faithful": "unfaithful", "inject_fabrication": "Residency can be disabled by filing an S3 support ticket.", "note": "ADVERSARIAL: contradicts cannot-be-turned-off"}

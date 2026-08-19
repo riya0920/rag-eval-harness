@@ -5,11 +5,11 @@ hand-authored golden set with four question categories, deterministic retrieval
 metrics, and a CI gate that blocks a regression — plus an inverted CI step that
 fails the build if the gate itself stops catching a planted regression.
 
-> **Status: ~40% built.** Retrieval, the golden set, retrieval metrics, the
-> experiment matrix and the CI gate are implemented and tested. Generation
-> metrics, the LLM judge and its human-agreement validation, and cost tracking
-> are **not** — see [Roadmap](#roadmap). No generation number is reported
-> anywhere in this repo, because none has been measured.
+> **Status: ~75% built.** Retrieval, a **103-example** golden set, retrieval
+> metrics, the experiment matrix, the CI gate, **generation with faithfulness /
+> coverage / refusal metrics**, a **judge validated against 42 human labels**,
+> and **cost tracking** are implemented and measured. A real LLM generator and a
+> reranker arm are not — see [Roadmap](#roadmap).
 
 ## Why this exists
 
@@ -59,6 +59,134 @@ ambiguous. Full argument in [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 The gate therefore pins `hybrid @ 80 tokens` rather than the nominal "winner":
 it is tied on the noisy overall metric and best on the one category that
 separates configurations.
+
+## The judge is validated, and the validation found a blind spot
+
+42 hand-labelled examples in `eval/human_labels.jsonl`:
+
+| | value |
+|---|---|
+| labelled examples | 42 |
+| raw agreement | **97.6%** |
+| **Cohen's kappa** | **0.954** (almost perfect) |
+| disagreements | 1 |
+
+**Why kappa and not raw agreement:** a judge that always says "faithful" agrees
+97% of the time on a corpus that is 97% faithful, while carrying no information.
+Kappa removes that floor, and `test_cohens_kappa_punishes_a_degenerate_judge`
+pins the property.
+
+**Why 12 of the 42 labels are deliberately fabricated.** The extractive generator
+copies sentences verbatim, so it is faithful *by construction* — a label set
+drawn only from its real output contains no unfaithful examples at all, and kappa
+on a single-class set is meaningless. Twelve labels carry an
+`inject_fabrication` field: a false sentence appended to a real answer, labelled
+unfaithful. Without them the "kappa" would have been a decoration.
+
+### The one disagreement, which is the interesting part
+
+`f041` — asked about SLA credits, the answer had this appended:
+
+> *"Credits below 99.0% uptime are paid out in cash within 14 days."*
+
+The corpus says credits are **never paid in cash**. The human label is
+unfaithful. **The judge scored it 1.0 — fully supported.**
+
+The reason is the judge's whole design: token-overlap entailment asks whether a
+claim's *words* appear in the context. This fabrication is built entirely from
+the corpus's own vocabulary — *credits*, *99.0%*, *uptime*, *paid* — so it passes
+a lexical check while **contradicting** the source.
+
+**That is the bias, stated plainly: this judge detects invention and misses
+contradiction.** A fabrication that introduces new entities gets caught (the
+other 11 did); a fabrication that reverses a fact using existing words does not.
+Any faithfulness number it produces is therefore an **upper bound**, and it is
+biased in favour of exactly the failure mode that matters most in a documentation
+assistant — confidently stating the opposite of the docs. An NLI-based judge is
+the fix, and it is the top roadmap item rather than an implied capability.
+
+**A second finding, about the method rather than the judge:** one label had to be
+*relabelled* mid-project. `f007` was originally labelled "refused"; a tokenizer
+fix changed retrieval and the system began answering correctly, making the label
+stale. Human labels rot when the system under test changes. That is a real
+ongoing cost of judge validation and the label file records it.
+
+## Generation metrics
+
+103 golden examples, hybrid retrieval at k=5, extractive generator:
+
+| metric | value |
+|---|---|
+| faithfulness | 0.893 |
+| coverage (answerable only) | 0.667 |
+| refusal accuracy (overall) | 0.796 |
+| p50 retrieve / generate | 0.92 ms / 0.97 ms |
+| **cost per query** | **$0.001196** |
+
+By category — and the split is where the honesty lives:
+
+| category | n | refusal accuracy | faithfulness | coverage |
+|---|---|---|---|---|
+| factual | 56 | 0.946 | 0.946 | 0.804 |
+| multi-hop | 22 | **1.000** | 1.000 | 0.572 |
+| ambiguous | 10 | 0.300 | 0.500 | 0.108 |
+| **unanswerable** | 15 | **0.267** | 0.800 | 0.211 |
+
+**Refusal accuracy on unanswerable questions is 26.7%, and that is the headline
+failure of this system.** The extractive generator answers when it should
+decline: given a question the corpus cannot answer, it finds *some* sentence with
+enough word overlap and returns it. The most instructive case is `u012` — asked
+which Kubernetes version Meridian runs, it answered about refund policy. Every
+claim in that answer is grounded in the corpus, so it scores as **faithful while
+being completely non-responsive**.
+
+That case is why faithfulness and coverage are reported separately and why
+refusal is a first-class metric. A single "quality" score would have hidden it.
+
+**Ambiguous questions score worst on coverage (0.108)** because the golden answers
+require enumerating several referents and the generator returns one. Recognising
+ambiguity and asking for clarification is not implemented at all.
+
+## Cost tracking
+
+Every generation call goes through a cost tracker and a content-addressed cache:
+
+* the cache is keyed on **(question, retrieved chunk ids)**, not the question
+  alone — a question-only cache serves a stale answer after the corpus changes,
+  and that bug is invisible until it matters
+* cache hits are **not billed**, and the summary separates `calls` from
+  `billed_calls`
+* **$0.001196 per query** at the configured rates
+
+## The experiment matrix
+
+103 golden examples, 88 of them labelled with relevant documents.
+
+| run | chunks | recall@5 | mrr | ndcg@10 | r@5 factual | r@5 multi-hop | r@5 ambiguous | ms/query |
+|---|---|---|---|---|---|---|---|---|
+| bm25_chunk40 | 65 | 0.927 | 0.929 | 0.911 | 1.000 | 0.871 | 0.648 | 0.37 |
+| bm25_chunk80 | 25 | 0.943 | 0.928 | 0.920 | 1.000 | 0.894 | 0.759 | 0.36 |
+| bm25_chunk160 | 24 | **0.953** | 0.939 | 0.929 | 1.000 | 0.939 | 0.759 | 0.39 |
+| dense_chunk40 | 65 | 0.927 | 0.907 | 0.894 | 1.000 | 0.871 | 0.648 | 1.36 |
+| dense_chunk80 | 25 | 0.944 | 0.932 | 0.929 | 0.982 | 0.917 | **0.833** | 1.35 |
+| dense_chunk160 | 24 | 0.927 | 0.923 | 0.916 | 0.982 | 0.871 | 0.759 | 0.84 |
+| hybrid_chunk40 | 65 | 0.927 | 0.924 | 0.908 | 1.000 | 0.871 | 0.648 | 2.16 |
+| hybrid_chunk80 | 25 | 0.950 | 0.932 | 0.928 | 1.000 | 0.894 | **0.833** | 1.19 |
+| hybrid_chunk160 | 24 | 0.951 | 0.934 | 0.926 | 1.000 | 0.932 | 0.759 | 1.41 |
+
+With 88 labelled examples the standard error near 0.95 is about 0.023, so the
+0.003 spread across the top four rows is **still inside the noise** — the larger
+golden set narrowed the band but did not make these configurations separable.
+The factual column remains saturated at 1.000; ambiguous is where they differ.
+
+**A tokenizer bug the generation work exposed:** the token pattern deliberately
+keeps `.` so that `$0.045` survives, which also meant a sentence-final period
+attached — `hours.` never matched `hours`. Invisible in BM25, where both sides
+get identical treatment, but silently fatal for key-point matching. Fixing it
+moved recall@5 from 0.917 to 0.953. **A bug that only one of two consumers can
+see is the argument for having two consumers.**
+
+## Retrieval is written, not imported
 
 ## The four design decisions
 
@@ -126,18 +254,31 @@ no SLA) rather than being obviously off-topic.
 | Experiment matrix, 9 tracked runs | done |
 | CI eval gate + planted-regression proof | done |
 | Written limitations / validity analysis | done |
-| **Generation: answer synthesis over retrieved context** | not started |
-| **Claim-level faithfulness + key-point coverage via LLM judge** | not started |
-| **Judge validation against human labels (report kappa)** | not started |
-| **Refusal accuracy on the 8 unanswerable questions** | not started |
-| **Cost tracking: per-call cache, tokens counted, cost/query** | not started |
+| Golden set expanded to 103 examples (spec floor ~100) | done |
+| Generation over retrieved context | done |
+| Claim-level faithfulness + key-point coverage | done |
+| Judge validated against 42 human labels (kappa 0.954) | done |
+| Adversarial fabrications so kappa is not degenerate | done |
+| Refusal accuracy as a first-class per-category metric | done |
+| Cost tracking with a context-keyed cache | done |
+| **NLI-based judge (the lexical one misses contradiction)** | not started |
+| **A real LLM generator (extractive stands in)** | not started |
 | **Reranker arm + the latency price it charges** | not started |
+| **Clarification behaviour on ambiguous questions** | not started |
 | **A held-out slice to detect golden-set overfitting** | not started |
 
 ## Honesty notes
 
-* No LLM is called anywhere in this repo yet. There is no judge, so there is no
-  judge-agreement number, and the README does not report one.
+* **No LLM is called anywhere in this repo.** The generator is extractive and the
+  judge is lexical. The *methodology* — hand-label a sample, compute kappa,
+  inspect the disagreements, report the bias — is what transfers; the specific
+  faithfulness number does not.
+* **The judge misses contradiction**, demonstrated by the one disagreement above.
+  Its faithfulness scores are an upper bound, biased toward the failure mode that
+  matters most.
+* **Refusal accuracy on unanswerable questions is 26.7%.** That is a genuine
+  weakness of the extractive generator, reported rather than buried in an
+  average.
 * The dense retriever is **lexical** (TF-IDF + SVD), not semantic. It is honest
   about this in `embeddings.py` and it means the hybrid-vs-BM25 comparison here
   understates what a real encoder would buy.

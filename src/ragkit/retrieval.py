@@ -23,9 +23,21 @@ STOPWORDS = {"the", "a", "an", "of", "to", "is", "are", "and", "or", "in", "for"
 
 
 def tokenize(text: str, drop_stopwords: bool = True) -> list:
-    toks = TOKEN.findall(text.lower())
-    if drop_stopwords:
-        toks = [t for t in toks if t not in STOPWORDS]
+    """Tokenise, keeping money and hyphenated identifiers intact.
+
+    The character class deliberately includes `.` and `-` so that `$0.045` and
+    `vcpu-hour` survive as single tokens. The consequence is that a
+    sentence-final period attaches too, turning `hours.` into a token that never
+    matches `hours` -- invisible in BM25, where both sides get the same
+    treatment, but silently fatal for key-point matching against the golden set.
+    Stripping LEADING and TRAILING punctuation keeps the useful cases and drops
+    the artefact.
+    """
+    toks = []
+    for raw in TOKEN.findall(text.lower()):
+        tok = raw.strip(".-")
+        if tok and not (drop_stopwords and tok in STOPWORDS):
+            toks.append(tok)
     return toks
 
 
