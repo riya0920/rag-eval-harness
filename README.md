@@ -5,11 +5,11 @@ hand-authored golden set with four question categories, deterministic retrieval
 metrics, and a CI gate that blocks a regression — plus an inverted CI step that
 fails the build if the gate itself stops catching a planted regression.
 
-> **Status: ~75% built.** Retrieval, a **103-example** golden set, retrieval
+> **Status: ~95% built.** Retrieval, a **103-example** golden set, retrieval
 > metrics, the experiment matrix, the CI gate, **generation with faithfulness /
 > coverage / refusal metrics**, a **judge validated against 42 human labels**,
-> and **cost tracking** are implemented and measured. A real LLM generator and a
-> reranker arm are not — see [Roadmap](#roadmap).
+> **cost tracking**, and **contradiction detection** are implemented and measured.
+> A real LLM generator and an NLI judge are not — see [Roadmap](#roadmap).
 
 ## Why this exists
 
@@ -23,7 +23,7 @@ project's own headline comparison is inside the noise band.
 
 ```bash
 pip install -r requirements.txt        # numpy + scipy + pytest. That is the whole list.
-make test                              # 28 unit tests
+make test                              # 35 unit tests
 make matrix                            # sweep 3 retrieval modes x 3 chunk sizes
 make gate                              # exit 0 -- no regression vs eval/baseline.json
 make demo                              # exit 1 -- the gate catching a planted regression
@@ -38,12 +38,12 @@ which is the only reason it can plausibly sit on every PR.
 
 42 hand-labelled examples in `eval/human_labels.jsonl`:
 
-| | value |
-|---|---|
-| labelled examples | 42 |
-| raw agreement | **97.6%** |
-| **Cohen's kappa** | **0.954** (almost perfect) |
-| disagreements | 1 |
+| | before contradiction detection | after |
+|---|---|---|
+| labelled examples | 42 | **48** |
+| raw agreement | 97.6% | **97.9%** |
+| **Cohen's kappa** | 0.954 | **0.963** |
+| disagreements | 1 (a contradiction it missed) | 1 (an *implication* it cannot reach) |
 
 **Why kappa and not raw agreement:** a judge that always says "faithful" agrees
 97% of the time on a corpus that is 97% faithful, while carrying no information.
@@ -57,27 +57,52 @@ on a single-class set is meaningless. Twelve labels carry an
 `inject_fabrication` field: a false sentence appended to a real answer, labelled
 unfaithful. Without them the "kappa" would have been a decoration.
 
-### The one disagreement, which is the interesting part
+### The blind spot it found, and the fix
 
-`f041` — asked about SLA credits, the answer had this appended:
+The first validation run found the judge scoring this **1.0 — fully supported**:
 
 > *"Credits below 99.0% uptime are paid out in cash within 14 days."*
 
-The corpus says credits are **never paid in cash**. The human label is
-unfaithful. **The judge scored it 1.0 — fully supported.**
+against a corpus that says credits are **never paid in cash**. Token-overlap
+entailment asks whether a claim's *words* appear in the context, and this
+fabrication is built entirely from the corpus's own vocabulary. **The judge
+detected invention and missed contradiction** — biased in favour of exactly the
+failure mode that matters most in a documentation assistant.
 
-The reason is the judge's whole design: token-overlap entailment asks whether a
-claim's *words* appear in the context. This fabrication is built entirely from
-the corpus's own vocabulary — *credits*, *99.0%*, *uptime*, *paid* — so it passes
-a lexical check while **contradicting** the source.
+`contradiction.py` closes it with three rules aimed at the shapes that actually
+occur in factual docs, each reporting *which* rule fired because "invented" and
+"reversed" are different bugs:
 
-**That is the bias, stated plainly: this judge detects invention and misses
-contradiction.** A fabrication that introduces new entities gets caught (the
-other 11 did); a fabrication that reverses a fact using existing words does not.
-Any faithfulness number it produces is therefore an **upper bound**, and it is
-biased in favour of exactly the failure mode that matters most in a documentation
-assistant — confidently stating the opposite of the docs. An NLI-based judge is
-the fix, and it is the top roadmap item rather than an implied capability.
+| rule | catches |
+|---|---|
+| polarity flip | context negates what the claim asserts (*never paid* vs *paid*) |
+| numeric mismatch | same entity, different number (*400 days* vs *40 days*) |
+| antonym substitution | one member of an opposed pair swapped (*enabled* / *disabled*) |
+
+A claim it cannot adjudicate returns **`unknown`, not `supported`** — degrading
+to "I don't know" rather than to a false pass.
+
+`test_faithfulness_now_rejects_a_contradiction_that_token_overlap_accepts` pins
+the exact `f041` failure, and asserts that disabling the second gate reproduces
+the old wrong behaviour.
+
+### Then I made the labels harder, because kappa 1.0 is a warning
+
+With contradiction detection on, agreement hit **1.0 with zero disagreements** —
+which does not mean the judge is perfect, it means **the label set stopped
+challenging it**. So six harder adversarial cases were added, chosen to probe the
+new detector's limits rather than confirm its strengths.
+
+**Five of six were caught. One was not**, and it is the one predicted to fail:
+
+> *"Starter tier customers also receive a named technical account manager."*
+
+The corpus grants a TAM only on Scale above $250k spend. There is no negation to
+flip, no antonym, and no conflicting number *in the claim itself* — the
+contradiction is an **implication**, and detecting it needs entailment rather
+than surface cues. That is the honest boundary of a rule-based judge and the
+precise argument for an NLI model, stated as a measured limit rather than a
+disclaimer.
 
 **A second finding, about the method rather than the judge:** one label had to be
 *relabelled* mid-project. `f007` was originally labelled "refused"; a tokenizer
@@ -91,7 +116,7 @@ ongoing cost of judge validation and the label file records it.
 
 | metric | value |
 |---|---|
-| faithfulness | 0.893 |
+| faithfulness | 0.887 |
 | coverage (answerable only) | 0.667 |
 | refusal accuracy (overall) | 0.796 |
 | p50 retrieve / generate | 0.92 ms / 0.97 ms |
@@ -239,7 +264,10 @@ no SLA) rather than being obviously off-topic.
 | Adversarial fabrications so kappa is not degenerate | done |
 | Refusal accuracy as a first-class per-category metric | done |
 | Cost tracking with a context-keyed cache | done |
-| **NLI-based judge (the lexical one misses contradiction)** | not started |
+| Contradiction detection: polarity, numeric, antonym | done |
+| Harder adversarial labels probing the detector's limits | done |
+| **NLI judge (rules cannot reach implication contradiction)** | not started |
+| **Stemming (antonym inflections are listed by hand today)** | not started |
 | **A real LLM generator (extractive stands in)** | not started |
 | **Reranker arm + the latency price it charges** | not started |
 | **Clarification behaviour on ambiguous questions** | not started |
@@ -251,9 +279,12 @@ no SLA) rather than being obviously off-topic.
   judge is lexical. The *methodology* — hand-label a sample, compute kappa,
   inspect the disagreements, report the bias — is what transfers; the specific
   faithfulness number does not.
-* **The judge misses contradiction**, demonstrated by the one disagreement above.
-  Its faithfulness scores are an upper bound, biased toward the failure mode that
-  matters most.
+* **The judge now catches contradiction by rule, not by understanding.** It
+  handles polarity, numbers and a hand-listed antonym table; it cannot reach
+  implication contradiction, demonstrated by the one remaining miss. Faithfulness
+  remains an upper bound, just a tighter one.
+* **The antonym list has no stemmer**, so an unlisted inflection is a silent
+  miss. `enables`/`disables` had to be added by hand after a test caught it.
 * **Refusal accuracy on unanswerable questions is 26.7%.** That is a genuine
   weakness of the extractive generator, reported rather than buried in an
   average.

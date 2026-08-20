@@ -290,3 +290,77 @@ def test_second_identical_call_is_served_from_cache():
     assert not first.cached and second.cached
     assert second.text == first.text
     assert gen.tracker.summary()["billed_calls"] == 1
+
+
+# --------------------------------------------------------------------------
+# contradiction detection -- the blind spot the judge validation exposed
+# --------------------------------------------------------------------------
+
+def test_polarity_flip_is_detected():
+    from ragkit.contradiction import detect
+
+    ctx = ["SLA credits are applied to a future invoice; they are never paid in cash."]
+    claim = "SLA credits are paid in cash to the customer."
+    r = detect(claim, ctx)
+    assert r.contradicts and r.rule == "polarity_flip"
+
+
+def test_numeric_mismatch_is_detected():
+    from ragkit.contradiction import detect
+
+    ctx = ["Audit log entries are immutable and retained for 400 days."]
+    r = detect("Audit log entries are immutable and retained for 40 days.", ctx)
+    assert r.contradicts and r.rule == "numeric_mismatch"
+
+
+def test_antonym_substitution_is_detected():
+    from ragkit.contradiction import detect
+
+    ctx = ["Enabling residency disables cross-region reads entirely."]
+    r = detect("Enabling residency enables cross-region reads entirely.", ctx)
+    assert r.contradicts and r.rule == "antonym_substitution"
+
+
+def test_a_faithful_restatement_is_not_flagged():
+    """The detector must not fire on agreement, or it destroys precision."""
+    from ragkit.contradiction import detect
+
+    ctx = ["Peering connections take up to 15 minutes to become active."]
+    r = detect("Peering connections take up to 15 minutes to become active.", ctx)
+    assert not r.contradicts
+
+
+def test_off_topic_claim_returns_unknown_not_supported():
+    """Degrading to 'I don't know' is safe; degrading to 'fine' is not."""
+    from ragkit.contradiction import detect
+
+    ctx = ["Peering connections take up to 15 minutes to become active."]
+    r = detect("Bananas ripen faster in warm weather conditions.", ctx)
+    assert not r.contradicts
+    assert r.rule == "unknown"
+
+
+def test_faithfulness_now_rejects_a_contradiction_that_token_overlap_accepts():
+    """The exact f041 failure, pinned so it cannot regress."""
+    from ragkit.judge import claim_supported, faithfulness
+
+    ctx = ["SLA credits are 10% of the monthly bill, rising to 50% below 95.0%. "
+           "Credits must be claimed within 30 days and are never paid in cash."]
+    fabrication = "Credits below 99.0% uptime are paid in cash within 14 days."
+
+    # Token overlap alone accepts it -- that is the documented blind spot.
+    assert claim_supported(fabrication, ctx, threshold=0.5)
+    # The full faithfulness check, with contradiction detection, rejects it.
+    assert faithfulness(fabrication, ctx).score < 1.0
+    # And disabling the second gate reproduces the old, wrong behaviour.
+    assert faithfulness(fabrication, ctx, check_contradiction=False).score == 1.0
+
+
+def test_contradiction_rule_is_reported_not_just_a_boolean():
+    """Which gate rejected a claim matters: invented and reversed are different bugs."""
+    from ragkit.judge import faithfulness
+
+    ctx = ["Backups are retained for 14 days on the Team tier."]
+    result = faithfulness("Backups are retained for 99 days on the Team tier.", ctx)
+    assert result.contradictions
+    assert result.contradictions[0]["rule"] == "numeric_mismatch"

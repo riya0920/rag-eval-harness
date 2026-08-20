@@ -28,6 +28,7 @@ import math
 import os
 from dataclasses import dataclass
 
+from .contradiction import detect as detect_contradiction
 from .generation import split_sentences
 from .retrieval import tokenize
 
@@ -38,6 +39,7 @@ class FaithfulnessResult:
     n_supported: int
     score: float
     unsupported_claims: list
+    contradictions: list = None
 
     def as_dict(self) -> dict:
         return self.__dict__.copy()
@@ -73,13 +75,37 @@ def claim_supported(claim: str, context_texts, threshold: float = 0.65) -> bool:
     return best >= threshold
 
 
-def faithfulness(answer_text: str, context_texts, threshold: float = 0.65) -> FaithfulnessResult:
+def faithfulness(answer_text: str, context_texts, threshold: float = 0.65,
+                 check_contradiction: bool = True) -> FaithfulnessResult:
+    """A claim is faithful only if it is BOTH supported and non-contradictory.
+
+    Support alone is not enough, and that gap is not hypothetical -- it is the
+    documented failure the judge validation found. A claim assembled from the
+    corpus's own vocabulary can score 1.0 on token overlap while asserting the
+    opposite of the source, so `contradiction.detect` runs as a second, separate
+    gate. Which gate rejected a claim is recorded, because "invented" and
+    "reversed" are different bugs with different fixes.
+    """
     claims = extract_claims(answer_text)
     if not claims:
         return FaithfulnessResult(0, 0, float("nan"), [])
-    unsupported = [c for c in claims if not claim_supported(c, context_texts, threshold)]
+
+    unsupported, contradictions = [], []
+    for c in claims:
+        if not claim_supported(c, context_texts, threshold):
+            unsupported.append(c)
+            continue
+        if check_contradiction:
+            verdict = detect_contradiction(c, context_texts)
+            if verdict.contradicts:
+                unsupported.append(c)
+                contradictions.append({"claim": c[:160], "rule": verdict.rule,
+                                       "detail": verdict.detail})
+
     n_sup = len(claims) - len(unsupported)
-    return FaithfulnessResult(len(claims), n_sup, n_sup / len(claims), unsupported)
+    result = FaithfulnessResult(len(claims), n_sup, n_sup / len(claims), unsupported)
+    result.contradictions = contradictions
+    return result
 
 
 def key_point_coverage(answer_text: str, key_points, threshold: float = 0.6) -> dict:
