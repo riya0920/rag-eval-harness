@@ -29,6 +29,7 @@ import os
 from dataclasses import dataclass
 
 from .contradiction import detect as detect_contradiction
+from .nli import detect_composed
 from .generation import split_sentences
 from .retrieval import tokenize
 
@@ -76,7 +77,7 @@ def claim_supported(claim: str, context_texts, threshold: float = 0.65) -> bool:
 
 
 def faithfulness(answer_text: str, context_texts, threshold: float = 0.65,
-                 check_contradiction: bool = True) -> FaithfulnessResult:
+                 check_contradiction: bool = True, use_nli: bool = False) -> FaithfulnessResult:
     """A claim is faithful only if it is BOTH supported and non-contradictory.
 
     Support alone is not enough, and that gap is not hypothetical -- it is the
@@ -96,7 +97,10 @@ def faithfulness(answer_text: str, context_texts, threshold: float = 0.65,
             unsupported.append(c)
             continue
         if check_contradiction:
-            verdict = detect_contradiction(c, context_texts)
+            # Rules first, NLI only for the residue they cannot express. See
+            # nli.detect_composed for why the order is load-bearing.
+            verdict = (detect_composed(c, context_texts, use_nli=True) if use_nli
+                       else detect_contradiction(c, context_texts))
             if verdict.contradicts:
                 unsupported.append(c)
                 contradictions.append({"claim": c[:160], "rule": verdict.rule,
@@ -173,7 +177,7 @@ def interpret_kappa(k: float) -> str:
 
 
 def validate_judge(labels_path: str, retriever, generator, examples_by_id: dict,
-                   fetch_k: int = 5, threshold: float = 0.65) -> dict:
+                   fetch_k: int = 5, threshold: float = 0.65, use_nli: bool = False) -> dict:
     """Run the judge over hand-labelled examples and report agreement.
 
     `human_labels.jsonl` carries, per example, a human verdict on whether the
@@ -202,7 +206,7 @@ def validate_judge(labels_path: str, retriever, generator, examples_by_id: dict,
         if fabrication:
             text = (text + " " + fabrication).strip()
 
-        result = faithfulness(text, [c.text for c in chunks], threshold)
+        result = faithfulness(text, [c.text for c in chunks], threshold, use_nli=use_nli)
 
         judged = "faithful" if (math_isnan_safe(result.score) or result.score >= 0.999) else "unfaithful"
         if answer.refused and not fabrication:

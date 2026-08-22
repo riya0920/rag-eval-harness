@@ -66,6 +66,29 @@ ANTONYMS = [
 
 NUMBER = re.compile(r"\$?\d+(?:\.\d+)?%?")
 
+# Suffix-stripping stemmer, used ONLY for antonym comparison.
+#
+# It over-stems: "billing" -> "bill". That is harmless *here* because the antonym
+# table is a closed set of ~17 pairs and neither form appears in it, but it is
+# the reason this stemmer is not applied to retrieval or coverage scoring, where
+# conflating "billing" and "bill" would change results. Scoping a lossy transform
+# to the one place it cannot hurt is the point.
+#
+# It exists so the antonym table stops needing every inflection listed by hand,
+# which was a silent-miss source a test caught.
+_SUFFIXES = ("ing", "ed", "es", "s")
+
+
+def stem(token: str) -> str:
+    for suf in _SUFFIXES:
+        if len(token) > len(suf) + 3 and token.endswith(suf):
+            return token[: -len(suf)]
+    return token
+
+
+def _stems(terms) -> set:
+    return {stem(t) for t in terms}
+
 
 @dataclass
 class ContradictionResult:
@@ -133,12 +156,15 @@ def detect(claim: str, context_texts, overlap_threshold: float = 0.5) -> Contrad
                     % (sorted(claim_nums), sorted(sent_nums)),
                 )
 
-            # 3. Antonym substitution.
-            for a, b in ANTONYMS:
-                if (a in claim_terms and b in sent_terms) or (b in claim_terms and a in sent_terms):
+            # 3. Antonym substitution, compared on STEMS so that enables/enabled
+            # and disables/disabled no longer need separate table entries.
+            claim_stems, sent_stems = _stems(claim_terms), _stems(sent_terms)
+            for a_raw, b_raw in ANTONYMS:
+                a, b = stem(a_raw), stem(b_raw)
+                if (a in claim_stems and b in sent_stems) or (b in claim_stems and a in sent_stems):
                     return ContradictionResult(
                         True, "antonym_substitution",
-                        "claim uses %r where the context uses its opposite" % (a if a in claim_terms else b),
+                        "claim uses %r where the context uses its opposite" % (a_raw if a in claim_stems else b_raw),
                     )
 
     if best_overlap == 0.0:

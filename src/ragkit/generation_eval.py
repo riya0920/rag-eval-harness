@@ -130,6 +130,8 @@ def main():
     ap.add_argument("command", choices=["run", "sample", "validate-judge"])
     ap.add_argument("--n", type=int, default=30)
     ap.add_argument("--fetch-k", type=int, default=5)
+    ap.add_argument("--nli", action="store_true",
+                    help="use the NLI fallback for claims the rules cannot adjudicate")
     args = ap.parse_args()
 
     os.makedirs(RESULTS, exist_ok=True)
@@ -153,7 +155,8 @@ def main():
     chunks, retriever = build(GATE_CONFIG["mode"], GATE_CONFIG["target_tokens"])
     generator = ExtractiveGenerator()
     examples = {e["id"]: e for e in load_golden()}
-    out = validate_judge(LABELS, retriever, generator, examples)
+    out = validate_judge(LABELS, retriever, generator, examples, use_nli=args.nli)
+    out['nli_enabled'] = args.nli
     with open(os.path.join(RESULTS, "judge_validation.json"), "w") as fh:
         json.dump(out, fh, indent=2)
     print(json.dumps(out, indent=2))

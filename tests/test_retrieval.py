@@ -364,3 +364,131 @@ def test_contradiction_rule_is_reported_not_just_a_boolean():
     result = faithfulness("Backups are retained for 99 days on the Team tier.", ctx)
     assert result.contradictions
     assert result.contradictions[0]["rule"] == "numeric_mismatch"
+
+
+# --------------------------------------------------------------------------
+# the NLI judge -- kept, measured, and OFF by default
+# --------------------------------------------------------------------------
+
+def test_nli_degrades_gracefully_when_unavailable():
+    """The harness must stay runnable with numpy alone."""
+    from ragkit import nli
+
+    if nli.available():
+        import pytest as _pytest
+
+        _pytest.skip("transformers is installed here; the unavailable path is exercised in CI")
+    r = nli.detect("any claim", ["any context"])
+    assert not r.contradicts
+    assert r.rule == "nli_unavailable"
+
+
+def test_premise_selection_requires_topical_overlap():
+    """The guard whose absence collapsed the judge from kappa 0.963 to 0.194."""
+    from ragkit.nli import relevant_premises
+
+    claim = "Service keys are long-lived and do not expire."
+    contexts = [
+        "A rollback re-points traffic at the previous known-good revision.",
+        "Service keys are long-lived, do not expire, and are accepted by the batch API.",
+    ]
+    chosen = relevant_premises(claim, contexts, min_overlap=0.30)
+    assert len(chosen) == 1
+    assert "Service keys" in chosen[0], "the off-topic rollback chunk must not be a premise"
+
+
+def test_no_relevant_premise_is_unknown_not_consistent():
+    from ragkit.nli import detect
+
+    r = detect("Bananas ripen faster in warm weather.",
+               ["Peering connections take up to 15 minutes to become active."])
+    assert not r.contradicts
+    assert r.rule in ("nli_no_relevant_premise", "nli_unavailable")
+
+
+def test_composed_judge_prefers_the_explainable_rule_verdict():
+    """Rules first: when they fire, their named reason is what gets reported."""
+    from ragkit.nli import detect_composed
+
+    ctx = ["Audit log entries are immutable and retained for 400 days."]
+    r = detect_composed("Audit log entries are retained for 40 days.", ctx, use_nli=False)
+    assert r.contradicts
+    assert r.rule == "numeric_mismatch", "a rule verdict must not be replaced by an opaque one"
+
+
+def test_nli_is_off_by_default_in_faithfulness():
+    """The measured tradeoff says rules alone win, so that is the default."""
+    import inspect
+
+    from ragkit.judge import faithfulness
+
+    assert inspect.signature(faithfulness).parameters["use_nli"].default is False
+
+
+# --------------------------------------------------------------------------
+# reranking and the held-out slice
+# --------------------------------------------------------------------------
+
+def test_feature_reranker_prefers_a_contiguous_phrase_match():
+    from ragkit.rerank import feature_score
+
+    q = "audit log retention period"
+    tight = "The audit log retention period is 400 days."
+    scattered = "Audit entries exist. Retention varies. The period for logs differs by tier."
+    assert feature_score(q, tight) > feature_score(q, scattered)
+
+
+def test_reranker_blend_of_zero_preserves_retrieval_order():
+    """The control: at blend=0 the reranker must be a no-op, or the sweep is meaningless."""
+    from ragkit.chunking import load_chunks
+    from ragkit.embeddings import build_default_embedder
+    from ragkit.rerank import FeatureReranker, RerankingRetriever
+
+    chunks = load_chunks(CORPUS, target_tokens=80)
+    base = HybridRetriever(chunks, embedder=build_default_embedder(chunks), mode="hybrid")
+    rr = RerankingRetriever(base, chunks, FeatureReranker(), fetch_multiplier=3, blend=0.0)
+
+    q = "How long are audit log entries retained?"
+    assert [c for c, _ in rr.search(q, 5)] == [c for c, _ in base.search(q, 5)]
+
+
+def test_reranker_reports_its_latency():
+    """A reranker reported without its cost is half a result."""
+    from ragkit.chunking import Chunk
+    from ragkit.rerank import FeatureReranker
+
+    chunks = [Chunk("d%d#0" % i, "d%d" % i, "some text about topic %d" % i, 0) for i in range(8)]
+    r = FeatureReranker().rerank("topic 3", chunks)
+    assert r.latency_ms >= 0.0
+    assert len(r.order) == 8
+
+
+def test_heldout_split_is_stable_across_calls():
+    """A reshuffle between runs would leak the held-out slice one example at a time."""
+    from ragkit.experiment import split_golden
+
+    a_dev, a_held = split_golden()
+    b_dev, b_held = split_golden()
+    assert [e["id"] for e in a_held] == [e["id"] for e in b_held]
+    assert not (set(e["id"] for e in a_dev) & set(e["id"] for e in a_held))
+
+
+def test_heldout_split_is_stratified_across_categories():
+    """An all-factual held-out slice would be uninformative -- that class is saturated."""
+    from ragkit.experiment import split_golden
+
+    _dev, held = split_golden()
+    cats = {e["category"] for e in held}
+    assert len(cats) >= 3, "held-out slice must span categories, got %r" % cats
+    assert len(held) >= 10
+
+
+def test_stemmer_is_scoped_to_antonym_comparison_only():
+    """It over-stems (billing -> bill); that is safe only because of where it is used."""
+    from ragkit.contradiction import stem
+    from ragkit.retrieval import tokenize
+
+    assert stem("enables") == stem("enabled")
+    assert stem("billing") == "bill"          # documented over-stemming
+    # Retrieval must NOT be stemmed, or billing/bill would conflate in scoring.
+    assert "billing" in tokenize("billing overview")

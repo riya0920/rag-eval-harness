@@ -1,2 +1,5 @@
 numpy>=1.26
 pytest>=8.0
+# Optional: enables the NLI judge (measured and OFF by default -- see the README).
+# The harness runs fully without it.
+transformers>=4.40 ; extra == "nli"

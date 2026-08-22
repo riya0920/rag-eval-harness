@@ -149,10 +149,14 @@ def run_gate(update: bool = False, plant_regression: bool = False) -> int:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("command", choices=["matrix", "gate", "update-baseline"])
+    ap.add_argument("command", choices=["matrix", "gate", "update-baseline", "heldout"])
     ap.add_argument("--plant-regression", action="store_true",
                     help="run the gate against a deliberately degraded retriever to prove it fails")
     args = ap.parse_args()
+    if args.command == "heldout":
+        out = run_heldout()
+        print(json.dumps(out, indent=2))
+        return 0
     if args.command == "matrix":
         report = run_matrix()
         print()
@@ -160,6 +164,78 @@ def main():
         return 0
     return run_gate(update=args.command == "update-baseline", plant_regression=args.plant_regression)
 
+
+
+
+# ---------------------------------------------------------------------------
+# held-out slice -- the guard against golden-set overfitting
+# ---------------------------------------------------------------------------
+
+HELDOUT_FRACTION = 0.25
+
+
+def split_golden(examples=None, fraction: float = HELDOUT_FRACTION, seed: int = 1234):
+    """Deterministic dev/held-out split of the golden set.
+
+    Every configuration decision in this repo has been made against the SAME 103
+    examples. After enough iterations that stops measuring retrieval quality and
+    starts measuring fit to this particular file -- and nothing in the harness
+    would show it, because the number being optimised is the number being
+    reported.
+
+    The split is:
+      * **stratified by category**, so the held-out slice is not accidentally all
+        factual, which is the saturated class and would make it uninformative
+      * **hashed on example id**, not shuffled, so an example stays in the same
+        side forever. A reshuffle between runs would leak the held-out slice into
+        tuning one example at a time.
+    """
+    import hashlib
+
+    examples = examples if examples is not None else load_golden()
+    by_cat = {}
+    for ex in examples:
+        by_cat.setdefault(ex["category"], []).append(ex)
+
+    dev, held = [], []
+    for cat, rows in sorted(by_cat.items()):
+        rows = sorted(rows, key=lambda e: e["id"])
+        for ex in rows:
+            h = hashlib.blake2b(("%s:%s" % (seed, ex["id"])).encode(), digest_size=8).hexdigest()
+            (held if (int(h, 16) % 10_000) / 10_000.0 < fraction else dev).append(ex)
+    return dev, held
+
+
+def run_heldout(mode: str = None, target_tokens: int = None) -> dict:
+    """Score the gate configuration on dev and held-out separately.
+
+    A large dev-vs-held-out gap is the signature of golden-set overfitting. A
+    small gap does not prove there is none -- both slices come from one corpus
+    written by one person -- but a large one is conclusive.
+    """
+    mode = mode or GATE_CONFIG["mode"]
+    target_tokens = target_tokens or GATE_CONFIG["target_tokens"]
+    _chunks, retriever = build(mode, target_tokens)
+    dev, held = split_golden()
+
+    dev_m = evaluate_retrieval(retriever, dev)
+    held_m = evaluate_retrieval(retriever, held)
+    gap = dev_m["overall"]["recall@5"] - held_m["overall"]["recall@5"]
+
+    return {
+        "config": {"mode": mode, "target_tokens": target_tokens},
+        "n_dev": len(dev),
+        "n_heldout": len(held),
+        "dev": {k: dev_m["overall"][k] for k in ("recall@5", "mrr", "ndcg@10")},
+        "heldout": {k: held_m["overall"][k] for k in ("recall@5", "mrr", "ndcg@10")},
+        "recall@5_gap": gap,
+        "heldout_categories": {c: len([e for e in held if e["category"] == c])
+                               for c in sorted({e["category"] for e in held})},
+        "verdict": ("no evidence of overfitting" if abs(gap) < 0.05
+                    else "dev/held-out gap exceeds 5 points -- treat tuned numbers as optimistic"),
+        "caveat": ("both slices come from one corpus written by one person, so a small gap "
+                   "bounds overfitting to the SPLIT, not to the corpus or the question style."),
+    }
 
 if __name__ == "__main__":
     sys.exit(main())

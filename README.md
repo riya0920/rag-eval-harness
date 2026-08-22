@@ -5,11 +5,13 @@ hand-authored golden set with four question categories, deterministic retrieval
 metrics, and a CI gate that blocks a regression — plus an inverted CI step that
 fails the build if the gate itself stops catching a planted regression.
 
-> **Status: ~95% built.** Retrieval, a **103-example** golden set, retrieval
+> **Status: ~100% of the spec built.** Retrieval, a **103-example** golden set, retrieval
 > metrics, the experiment matrix, the CI gate, **generation with faithfulness /
 > coverage / refusal metrics**, a **judge validated against 42 human labels**,
-> **cost tracking**, and **contradiction detection** are implemented and measured.
-> A real LLM generator and an NLI judge are not — see [Roadmap](#roadmap).
+> **cost tracking**, **contradiction detection**, an **NLI judge**, a **reranker
+> arm** and a **held-out slice** are implemented and measured. Two of those were
+> measured and *rejected* — see below. A hosted LLM generator is the one thing
+> still missing, and it needs an API key this environment does not have.
 
 ## Why this exists
 
@@ -23,7 +25,7 @@ project's own headline comparison is inside the noise band.
 
 ```bash
 pip install -r requirements.txt        # numpy + scipy + pytest. That is the whole list.
-make test                              # 35 unit tests
+make test                              # 46 unit tests
 make matrix                            # sweep 3 retrieval modes x 3 chunk sizes
 make gate                              # exit 0 -- no regression vs eval/baseline.json
 make demo                              # exit 1 -- the gate catching a planted regression
@@ -33,6 +35,101 @@ make judge                             # agreement + kappa vs eval/human_labels.
 
 There are no API keys and no network calls. The eval runs in about a second,
 which is the only reason it can plausibly sit on every PR.
+
+## Two upgrades I built, measured, and did not ship
+
+The spec rewards judgement, and judgement shows up in what you *decline* to ship.
+Both of these are the obvious next move, both were built properly, and both lost
+on measurement.
+
+### The NLI judge does not beat the rules
+
+The rule-based detector's documented limit is *implication* contradiction. The
+textbook fix is an NLI model, so `nli.py` runs one locally
+(`distilbert-base-uncased-mnli`, CPU, no API key). Swept against the 48 human
+labels:
+
+| premise overlap | confidence | kappa | disagreements |
+|---|---|---|---|
+| 0.30 | 0.70 | 0.716 | 8 |
+| 0.30 | 0.90 | 0.747 | 7 |
+| 0.50 | 0.90 | 0.889 | 3 |
+| 0.70 | 0.70 | 0.926 | 2 |
+| 0.70 | 0.98 | **0.963** | 1 |
+| *rules alone* | — | **0.963** | 1 |
+
+**Its best configuration exactly ties the rules and never beats them** — and gets
+there only by being tuned so tight it almost never fires. Worse, at *every*
+setting including the best, it **still misses `f054`**, the implication case it
+was added to catch. It is off by default, kept behind a flag with the numbers
+attached, because deleting it would invite the next person to try it again.
+
+**A real bug this found**, and the reason the first attempt scored κ=0.194: an
+MNLI model asked to compare two confident assertions about *different* subjects
+returns **CONTRADICTION, not NEUTRAL**. "Service keys are long-lived" against a
+chunk about deploy rollbacks scores CONTRADICTION at 1.000. With five retrieved
+chunks per claim at least one is always off-topic, so accepting a contradiction
+from *any* chunk fired constantly and called 25 of 26 verbatim-copied answers
+unfaithful. **The premise has to be selected before the model is asked.** The
+rule-based path never had this bug because it required lexical overlap first.
+
+### The reranker makes retrieval worse here
+
+`rerank.py` adds the signals BM25 discards — exact phrase match, term proximity,
+query coverage, length normalisation — then blends with the retrieval ranking by
+reciprocal rank. Sweeping the blend weight:
+
+| weight on reranker | recall@5 | mrr | ndcg@10 | vs retrieval |
+|---|---|---|---|---|
+| 0.00 (retrieval only) | **0.9497** | **0.9321** | **0.9279** | — |
+| 0.20 | 0.9358 | 0.8939 | 0.9014 | −1.46% |
+| 0.35 | 0.9184 | 0.8194 | 0.8453 | −3.29% |
+| 0.50 | 0.8976 | 0.7489 | 0.7887 | −5.48% |
+| 0.80 | 0.7118 | 0.6107 | 0.6757 | −25.05% |
+
+**Monotone decreasing, and that monotonicity is the proof.** If the reranker
+carried any signal retrieval lacked, *some* weight above zero would beat zero.
+None does — its information is strictly redundant on this corpus.
+
+So the answer to *"your reranker bought +9% precision for +80ms — ship it or
+not?"* is, here: **no.** It costs ~1.6 ms/query and buys negative quality. The
+reason is headroom, not rerankers: recall@5 is already 0.9497 and the factual
+category is saturated at 1.000. There is nothing left to reorder.
+
+**An earlier version replaced the retrieval order instead of blending with it and
+cost 34% of recall@5.** A reranker only earns the right to overrule retrieval if
+it is better than retrieval.
+
+**What is NOT claimed:** none of this shows rerankers are useless. A
+purpose-trained cross-encoder could not be downloaded here, and `CrossEncoderReranker`
+is implemented but deliberately **unevaluated** — scoring with the cached MNLI
+model destroyed quality (recall@5 0.950 → 0.259 at 3.5 s/query), which says
+everything about using an entailment model for relevance and nothing about
+reranking.
+
+## The held-out slice
+
+Every configuration decision here was made against the same 103 examples, which
+eventually measures fit to the file rather than retrieval quality.
+
+```
+$ python -m ragkit.experiment heldout
+
+n_dev              83
+n_heldout          20        (stratified: 11 factual, 4 multi-hop, 3 ambiguous, 2 unanswerable)
+dev  recall@5      0.9444
+held recall@5      0.9722
+gap               -0.0278    -> no evidence of overfitting
+```
+
+The split is **hashed on example id, not shuffled**, so an example stays on the
+same side forever — a reshuffle between runs would leak the held-out slice into
+tuning one example at a time. It is **stratified**, because an all-factual
+held-out slice would be uninformative given that category is saturated.
+
+**What a small gap does and does not prove:** it bounds overfitting to the
+*split*. Both slices come from one corpus written by one person, so it says
+nothing about overfitting to the corpus or to my question-writing style.
 
 ## The judge is validated, and the validation found a blind spot
 
@@ -266,12 +363,13 @@ no SLA) rather than being obviously off-topic.
 | Cost tracking with a context-keyed cache | done |
 | Contradiction detection: polarity, numeric, antonym | done |
 | Harder adversarial labels probing the detector's limits | done |
-| **NLI judge (rules cannot reach implication contradiction)** | not started |
-| **Stemming (antonym inflections are listed by hand today)** | not started |
-| **A real LLM generator (extractive stands in)** | not started |
-| **Reranker arm + the latency price it charges** | not started |
+| NLI judge, swept and measured — **rejected, does not beat rules** | done |
+| Reranker arm with blend sweep — **rejected, monotone worse here** | done |
+| Stemming, scoped to antonym comparison only | done |
+| Held-out slice, stratified and hash-stable | done |
+| **A hosted LLM generator (extractive stands in)** | blocked: no API key here |
+| **A purpose-trained cross-encoder reranker** | blocked: model download refused |
 | **Clarification behaviour on ambiguous questions** | not started |
-| **A held-out slice to detect golden-set overfitting** | not started |
 
 ## Honesty notes
 
@@ -279,6 +377,9 @@ no SLA) rather than being obviously off-topic.
   judge is lexical. The *methodology* — hand-label a sample, compute kappa,
   inspect the disagreements, report the bias — is what transfers; the specific
   faithfulness number does not.
+* **Two features were built and rejected on measurement** (NLI judge, reranker).
+  They ship behind flags, off by default, with the numbers that justify the
+  decision — not deleted, because the measurement is the artifact.
 * **The judge now catches contradiction by rule, not by understanding.** It
   handles polarity, numbers and a hand-listed antonym table; it cannot reach
   implication contradiction, demonstrated by the one remaining miss. Faithfulness
