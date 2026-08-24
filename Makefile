@@ -15,3 +15,5 @@ heldout:
 	PYTHONPATH=src python -m ragkit.experiment heldout
 judge:
 	PYTHONPATH=src python -m ragkit.generation_eval validate-judge
+clarify:
+	PYTHONPATH=src python -m ragkit.clarify sweep

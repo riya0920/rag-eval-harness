@@ -344,7 +344,90 @@ eight unanswerable questions are the hard kind — they *sound* answerable and
 reference real documents ("what is the SLA for the Starter tier?" — Starter has
 no SLA) rather than being obviously off-topic.
 
-## Roadmap (the remaining ~60%)
+## Clarification: the third component this repo built and rejected
+
+*"What is the rate limit?"* has two correct answers in this corpus — 600 requests
+per minute on the control plane, 10,000 per second on the data plane. A system
+that retrieves well and generates faithfully returns **one of them**, right about
+the sentence and wrong about the question. Retrieval metrics do not catch it (the
+correct chunk *was* retrieved); faithfulness does not catch it (the answer *is*
+grounded). It fails a check nothing upstream is looking for.
+
+`make clarify` builds a detector for it, and the detector does not work.
+
+| threshold | recall | precision | lift over base rate | interrupts |
+|---|---|---|---|---|
+| 0.25 | 0.90 | 0.13 | 1.34x | 67% |
+| 0.35 | 0.80 | 0.14 | 1.44x | 54% |
+| 0.60 | 0.30 | 0.18 | 1.87x | 15% |
+| **0.65** | 0.20 | **0.18** | **1.87x** | 10% |
+| 0.75 | 0.00 | 0.00 | — | 7% |
+
+**Peak precision 0.18 against a base rate of 0.097.** `recommend()` returns
+`shippable: false` rather than picking the least-bad row.
+
+The base-rate column is the one usually missing. A detector that fires on
+everything scores precision *equal to* the base rate by construction, so a
+reported 0.18 sounds like a working classifier while being 1.9x better than a
+coin. Every row carries the lift for that reason.
+
+### Two of three signals carried no information, and one was a category error
+
+The design started from the shape ambiguity takes in retrieval: top results
+individually strong, collectively disagreeing. Three signals followed from that,
+and measuring them killed two.
+
+**Document spread — dead.** Mean spread is 0.95–1.00 for *every* category
+including plain factual questions. With 80-token chunks over a many-document
+corpus, the top 5 essentially always come from 5 different documents. The signal
+measures the chunk size, not the question.
+
+**Fused score margin — dead, mechanically.** The retriever fuses with **RRF**,
+which discards raw scores for `1/(60 + rank)` sums. The top fused score is
+`0.03279` for *"What is the rate limit?"* and `0.03279` for *"How do I rotate a
+service key?"* — identical, because it is a pure function of the rank pair and
+independent of the query. Mean flatness came out 0.98–0.99 across all four
+categories, exactly as that predicts.
+
+Worth stating generally: **any confidence signal derived from RRF scores is
+measuring a constant.** RRF is rank fusion and is not supposed to preserve score
+information; using its output as a confidence is a category error, and an easy
+one because the numbers still look like scores. A test asserts the two queries
+share a top score, so if that ever stops being true the signal is worth
+revisiting.
+
+The surviving pair is a **flat margin on the raw BM25 arm** (0.369 on ambiguous
+against 0.525 on factual) **and competing quantities**. They only work together:
+the flat margin fires hardest on *unanswerable* questions (0.354 — the flattest
+of all, since nothing matches), and what separates those from ambiguous ones is
+that an unanswerable question has no competing specifics to disagree about.
+
+### A unit bug that hid three of the ten
+
+Grouping quantities by their literal unit string never compares "20 minutes" with
+"3 hours" — which are competing answers to *"how long does a restore take"*.
+Normalising into canonical dimensions (durations to seconds, sizes to bytes,
+rates to per-second) moved the questions the signal can even reach from **2 of 10
+to 5 of 10**, and peak lift from 1.29x to 1.87x.
+
+### Why it still fails, and it is not tuning
+
+Of the 10 ambiguous questions, **5 are ambiguous between numbers and 5 are not**.
+*"Can I change it after creation?"*, *"Is it included?"*, *"How many can I have?"*
+are ambiguous between entities and procedures, and no quantity signal reaches
+them. Half the positive class is invisible by construction. Closing that needs a
+signal over entities and section topics — and a positive class larger than 10 to
+measure it with, since at n=10 recall moves in steps of 0.1.
+
+### One bug in the recommender itself
+
+The first version checked only the interruption budget and returned threshold
+0.75 as feasible — at **recall 0.00**, a detector that never fires and therefore
+never interrupts anyone. Satisfying a constraint by doing nothing is not a
+recommendation, and `recommend()` now requires recall above zero and precision
+meaningfully above the base rate before it will name a threshold.
+
+## Roadmap
 
 | Milestone | Status |
 |---|---|
@@ -369,7 +452,8 @@ no SLA) rather than being obviously off-topic.
 | Held-out slice, stratified and hash-stable | done |
 | **A hosted LLM generator (extractive stands in)** | blocked: no API key here |
 | **A purpose-trained cross-encoder reranker** | blocked: model download refused |
-| **Clarification behaviour on ambiguous questions** | not started |
+| Clarification detector, swept and measured — **rejected, 1.9x over base rate** | done |
+| **An ambiguity signal over entities, not just quantities** | not started: needs a bigger positive class to measure |
 
 ## Honesty notes
 
