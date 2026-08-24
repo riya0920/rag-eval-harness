@@ -17,3 +17,5 @@ judge:
 	PYTHONPATH=src python -m ragkit.generation_eval validate-judge
 clarify:
 	PYTHONPATH=src python -m ragkit.clarify sweep
+entity-ambiguity:
+	PYTHONPATH=src python -m ragkit.entity_ambiguity

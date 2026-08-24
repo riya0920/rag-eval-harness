@@ -427,6 +427,85 @@ never interrupts anyone. Satisfying a constraint by doing nothing is not a
 recommendation, and `recommend()` now requires recall above zero and precision
 meaningfully above the base rate before it will name a threshold.
 
+### Entity ambiguity: the other half of the positive class
+
+The quantity detector reaches 5 of the 10 ambiguous questions. The other 5 share a
+shape it cannot see, because **the missing information is not in the retrieved
+text — it is absent from the question**:
+
+```
+a005  "Can I change it after creation?"        <- "it" has no antecedent
+a008  "How many can I have?"                   <- how many *what*
+a009  "Is it included?"                        <- "it" again
+a010  "What happens when I exceed the limit?"  <- *which* limit
+```
+
+Two new signals. **Dangling referent** — a pronoun or bare quantifier with no
+noun phrase anywhere in the question to bind it — costs two regexes and no
+retrieval, so it can run *before* the retriever does. **Competing definitions** —
+the question's head terms defined across several different *documents* in the
+top-k, counted per document rather than per mention, because the same term
+restated three times in one doc is one answer.
+
+| | peak lift over base rate | recall at peak |
+|---|---|---|
+| quantity only | 1.87x | 0.20 |
+| **+ entity signals** | **2.44x** | **0.90** |
+
+Still `shippable: false` — reaching that recall interrupts **31%** of unambiguous
+questions against a 5% budget. Better is not the same as good.
+
+### A feature that scored better because it was broken
+
+An earlier run of this reported **3.79x**, and keeping it would have been the
+easy call. It came from a bug.
+
+The definite-phrase rule ("the limit" is underspecified, "the rate limit for the
+data plane" is not) used a greedy match that **swallowed the qualifier**, so the
+most specific question in the set was scored as vague. Fixing that dropped the
+lift from 3.79x to 2.44x — which is *exactly* the score with the rule removed
+entirely.
+
+So on 103 examples, a broken feature firing on questions it should not was better
+correlated with ambiguity than the correct version of the same feature. That is
+overfitting seen from the inside, and the number was large enough to be worth
+keeping if nobody had asked why. The rule stays, fixed, documented as
+contributing **no measurable lift** — a feature kept on reasoning rather than
+evidence, labelled as such.
+
+The route there is worth recording too. The rule was cut on the strength of three
+counterexamples written by hand, restored when the golden set contradicted them
+(3.79x vs 2.44x), and only then did fixing the bug show that the golden set had
+been agreeing with a defect. **The hand-written probes were right and the
+aggregate was wrong**, which is the opposite of the usual lesson and the reason
+to keep both.
+
+### Two bugs in the detector itself
+
+* **The pronoun rule could never fire.** It read `tokenize()` output, and
+  `tokenize` strips stopwords — pronouns are stopwords. "Can I change it after
+  creation?" tokenises to `['can','i','change','after','creation']`: the one word
+  the rule exists to find is deleted before it looks. It reads the raw question
+  now.
+* **A definite phrase that is a prepositional object is not the head.** "a service
+  key for **the data plane**" qualifies something else, and treating it as the
+  subject flags every question ending in a prepositional phrase.
+
+### What is circular here, and what is not
+
+The entity features were designed **with the ten ambiguous questions visible**, so
+recall is an upper bound rather than an estimate of generalisation — and no
+cross-validation repairs that, because the leakage is in the feature design.
+
+The 93 negatives were **not** consulted while designing anything, so the
+interruption rate, and therefore precision, is an honest measurement. That
+asymmetry is why the headline is precision.
+
+The clean fix is a larger positive class written by someone who has not seen the
+detector. Authoring 40 more from the same taxonomy that produced these features
+would make the evaluation *more* circular while making the number look better,
+which is the trade this declines to take.
+
 ## Roadmap
 
 | Milestone | Status |
@@ -453,7 +532,8 @@ meaningfully above the base rate before it will name a threshold.
 | **A hosted LLM generator (extractive stands in)** | blocked: no API key here |
 | **A purpose-trained cross-encoder reranker** | blocked: model download refused |
 | Clarification detector, swept and measured — **rejected, 1.9x over base rate** | done |
-| **An ambiguity signal over entities, not just quantities** | not started: needs a bigger positive class to measure |
+| Entity ambiguity: dangling referents + competing definitions (1.87x -> 2.44x) | done |
+| **A positive class written by someone who has not seen the detector** | not available: authoring it here would be circular |
 
 ## Honesty notes
 
