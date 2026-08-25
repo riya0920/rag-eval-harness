@@ -1,23 +1,23 @@
 """Reranking, and the honest answer to "should you ship one here".
 
-Retrieval scores a query and a chunk **independently** — BM25 counts terms, the
+Retrieval scores a query and a chunk **independently** - BM25 counts terms, the
 dense arm compares vectors embedded without knowledge of each other. A reranker
 looks at the pair *together*, which is strictly more informative and strictly
 more expensive: nothing can be precomputed, so it costs work per candidate at
 request time.
 
-The spec's question — *"your reranker bought +9% precision for +80ms, ship it or
-not?"* — has no answer without both numbers, so this module measures both.
+The spec's question - *"your reranker bought +9% precision for +80ms, ship it or
+not?"* - has no answer without both numbers, so this module measures both.
 
 ## Two rerankers, and why the default is the cheap one
 
 `FeatureReranker` (default) scores each candidate with four query-dependent
 signals that a bag-of-words retriever cannot see:
 
-  * **exact phrase match** — the query's bigrams appearing contiguously
-  * **term proximity** — how tightly the query terms cluster in the chunk
-  * **query coverage** — what fraction of query terms appear at all
-  * **length normalisation** — a long chunk should not win on volume alone
+  * **exact phrase match** - the query's bigrams appearing contiguously
+  * **term proximity** - how tightly the query terms cluster in the chunk
+  * **query coverage** - what fraction of query terms appear at all
+  * **length normalisation** - a long chunk should not win on volume alone
 
 Sub-millisecond, no model, fully explainable. Proximity and phrase matching are
 precisely the signals BM25 discards when it treats a document as a bag of words,
@@ -27,7 +27,7 @@ which is why they are the right things to add back.
 evaluated**, because a purpose-trained reranker (`cross-encoder/ms-marco-*`)
 could not be downloaded in this environment. Scoring with the MNLI model that
 *is* cached was tried and destroyed retrieval quality (recall@5 0.950 -> 0.259 at
-3.5 s/query) — which says nothing about reranking and everything about using an
+3.5 s/query) - which says nothing about reranking and everything about using an
 entailment model for relevance. That number is recorded as a warning, not as
 evidence about rerankers.
 """

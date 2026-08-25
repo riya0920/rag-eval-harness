@@ -28,7 +28,7 @@ blocked if current usage exceeds the target tier's included capacity.
 ## doc:auth-tokens
 
 Meridian issues two credential types. **Session tokens** are short-lived, expire
-after 12 hours, and cannot be renewed — clients must re-authenticate. **Service
+after 12 hours, and cannot be renewed - clients must re-authenticate. **Service
 keys** are long-lived, do not expire, and are the only credential accepted by the
 batch API. Service keys are shown exactly once at creation time and cannot be
 retrieved afterwards. A service key can be scoped to a single project or to an
@@ -40,7 +40,7 @@ Service keys should be rotated every 90 days. Rotation is a two-step process: a
 new key is created while the old key stays valid, and the old key is revoked
 after the caller confirms the new key is in use. Meridian sends a rotation
 reminder at 75 days and marks a key `stale` in the console at 120 days. Stale
-keys continue to work — Meridian never auto-revokes a credential, because a
+keys continue to work - Meridian never auto-revokes a credential, because a
 silent revocation is worse than a stale key.
 
 ## doc:rate-limits
@@ -83,7 +83,7 @@ Restoring from a backup creates a new workload; it never overwrites the source.
 The restore target must be in the same region as the backup. A restore of under
 100 GB typically completes in 20 minutes; larger restores scale roughly linearly.
 During a restore the source workload continues serving traffic. There is no way
-to restore a single table or object from a workload-level backup — the granularity
+to restore a single table or object from a workload-level backup - the granularity
 is the whole workload.
 
 ## doc:networking-private
@@ -207,5 +207,5 @@ at any tier.
 The bulk import API accepts files up to 5 TB per job and up to 10 concurrent jobs
 per project. Imports are idempotent on the `object_key` field. An import that
 fails partway leaves already-imported objects in place; re-running the job skips
-them. There is no rollback for a completed import — undoing one means deleting
+them. There is no rollback for a completed import - undoing one means deleting
 the objects explicitly.

@@ -1,11 +1,11 @@
-"""Asking instead of answering — and why that is a precision problem.
+"""Asking instead of answering - and why that is a precision problem.
 
     python -m ragkit.clarify sweep
     python -m ragkit.clarify demo --question "What is the rate limit?"
 
 ## The failure this addresses
 
-*"What is the rate limit?"* has two correct answers in this corpus — 600 requests
+*"What is the rate limit?"* has two correct answers in this corpus - 600 requests
 per minute on the control plane, 10,000 per second on the data plane. A system
 that retrieves well and generates faithfully will confidently return **one of
 them**, and it will be right about the sentence and wrong about the question. No
@@ -18,41 +18,40 @@ The fix is to detect the condition and ask, which introduces the opposite risk.
 ## Why the threshold is the whole design
 
 Clarification is not free. Every question routed to a clarifying question costs a
-round trip, and a system that asks too often is worse than one that guesses —
-users stop reading the question and pick the first option, which is a guess with
+round trip, and a system that asks too often is worse than one that guesses - users stop reading the question and pick the first option, which is a guess with
 extra latency. So this is a **precision/recall trade with an asymmetric cost**,
 and the operating point is a product decision rather than a modelling one:
 
-  * **Recall** — of the genuinely ambiguous questions, how many did we catch?
-  * **Precision** — of the questions we asked about, how many deserved it?
+  * **Recall** - of the genuinely ambiguous questions, how many did we catch?
+  * **Precision** - of the questions we asked about, how many deserved it?
 
 A detector at 100% recall that asks on a third of factual questions is not
 usable. The sweep below reports both across the threshold range so the choice is
 visible, and `recommend()` picks a point under a stated constraint ("no more than
 5% of unambiguous questions may be interrupted") rather than optimising F1 and
-calling it done — F1 weights the two errors equally, and here they are not.
+calling it done - F1 weights the two errors equally, and here they are not.
 
-## The signals — including the two that turned out to be worthless
+## The signals - including the two that turned out to be worthless
 
 The first version used three signals, argued for on the shape ambiguity takes in
 retrieval: the top results are individually strong and collectively disagree. Two
 of the three carry **no information at all** on this corpus, and finding out why
 was the useful part.
 
-**Document spread — dead.** The idea was that a question with one answer clusters
-its top-k in one document. Measured across categories, mean spread is 0.95–1.00
+**Document spread - dead.** The idea was that a question with one answer clusters
+its top-k in one document. Measured across categories, mean spread is 0.95-1.00
 for *every* category including plain factual questions. With 80-token chunks over
 a many-document corpus, the top 5 essentially always come from 5 different
 documents. The signal is a property of the chunk size, not of the question.
 
-**Fused score margin — dead, and mechanically so.** The idea was that a
+**Fused score margin - dead, and mechanically so.** The idea was that a
 decisively-best chunk shows a large gap to rank 2. But the retriever fuses with
 **RRF**, which throws away raw scores in favour of `1/(60 + rank)` sums. The top
 fused score is `0.03279` for *"What is the rate limit?"* and `0.03279` for *"How
-do I rotate a service key?"* — identical, because it is a pure function of the
+do I rotate a service key?"* - identical, because it is a pure function of the
 rank pair and completely independent of the query. Every margin computed from
 fused scores measures the lattice, not the retrieval. Mean flatness came out
-0.98–0.99 for all four categories, exactly as that predicts.
+0.98-0.99 for all four categories, exactly as that predicts.
 
 That one is worth stating generally: **any confidence signal derived from RRF
 scores is measuring a constant.** RRF is a rank-fusion method and it is not
@@ -63,7 +62,7 @@ category error, and an easy one to make because the numbers look like scores.
 
   * **A flat margin on the raw lexical arm.** BM25 scores are query-dependent, so
     the rank-1-to-rank-2 margin means something there. Measured: 0.369 on
-    ambiguous questions against 0.525 on factual — flatter, in the right
+    ambiguous questions against 0.525 on factual - flatter, in the right
     direction.
   * **Competing quantities in the top 2.** Values in the same *dimension* that
     differ. "600 per minute" against "10,000 per second" is the signature; the
@@ -72,27 +71,27 @@ category error, and an easy one to make because the numbers look like scores.
     Grouping on the literal unit string was a bug worth its own note. "20
     minutes" and "3 hours" are competing answers to *"how long does a restore
     take"*, and comparing only within an identical unit never puts them side by
-    side. Normalising into canonical dimensions — durations to seconds, sizes to
-    bytes, rates to per-second — took the number of ambiguous questions the
+    side. Normalising into canonical dimensions - durations to seconds, sizes to
+    bytes, rates to per-second - took the number of ambiguous questions the
     signal can even reach from **2 of 10 to 5 of 10**, and peak precision lift
     from 1.29x to 1.87x. Values within 10% of each other are then treated as one
     figure, because "about 20 minutes" and "20 minutes" are one fact stated twice.
 
 The pair matters because the flat margin **cannot tell ambiguous from
-unanswerable** — unanswerable questions are the flattest of all, at 0.354, since
+unanswerable** - unanswerable questions are the flattest of all, at 0.354, since
 nothing matches well. What separates them is that an unanswerable question has no
 competing specifics to disagree about (1.00 versus 1.40). Retrieval uncertainty
 says "something is wrong"; competing quantities says *which* thing.
 
 ## The verdict: not shippable, and the reason is structural
 
-Peak precision **0.18 against a base rate of 0.097** — a lift of 1.87x, and
+Peak precision **0.18 against a base rate of 0.097** - a lift of 1.87x, and
 reaching it costs interrupting 10% of unambiguous questions. That is a coin with
 a threshold, and `recommend()` returns `shippable: false` rather than picking the
 least-bad row.
 
 The ceiling is not tuning. Of the 10 ambiguous questions, **5 are ambiguous
-between numbers and 5 are not** — *"Can I change it after creation?"*, *"Is it
+between numbers and 5 are not** - *"Can I change it after creation?"*, *"Is it
 included?"*, *"How many can I have?"* are ambiguous between entities and
 procedures, and no quantity signal reaches them at all. Half the positive class
 is invisible by construction.
@@ -258,7 +257,7 @@ def clarifying_question(question: str, sig: AmbiguitySignals) -> str:
     guess: it costs the round trip and gives the user nothing to answer with."""
     if len(sig.top_docs) > 1:
         readings = ", ".join(d.replace("doc:", "").replace("-", " ") for d in sig.top_docs[:3])
-        return ("That could mean a few different things here — %s. Which did you mean?"
+        return ("That could mean a few different things here - %s. Which did you mean?"
                 % readings)
     if sig.quantities:
         vals = ", ".join("%s %s" % (v, u) for v, u in sig.quantities[:3])
@@ -307,7 +306,7 @@ class ClarifyingRetrievalPolicy:
 def evaluate(policy: ClarifyingRetrievalPolicy, examples) -> dict:
     """Score against the golden set's own categories.
 
-    `ambiguous` is the positive class. Everything else is negative — including
+    `ambiguous` is the positive class. Everything else is negative - including
     `unanswerable`, which is a *different* failure with a different response: an
     unanswerable question should be refused, not clarified, and conflating them
     would let a detector score well by asking about everything it cannot answer.

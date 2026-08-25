@@ -1,4 +1,4 @@
-"""Tests for the clarification detector — including that it refuses to ship.
+"""Tests for the clarification detector - including that it refuses to ship.
 
 The load-bearing tests here are the ones that pin *negative* results: that two of
 the three original signals carry no information, that the detector's precision is

@@ -1,23 +1,23 @@
-"""Contradiction detection — the blind spot the judge validation exposed.
+"""Contradiction detection - the blind spot the judge validation exposed.
 
 The lexical judge scores a claim by how many of its words appear in the context.
 That catches **invention** (new entities, new numbers) and completely misses
 **contradiction**: a sentence built from the corpus's own vocabulary that asserts
 the opposite of what the corpus says. `f041` in the human labels is the worked
-example — *"Credits below 99.0% uptime are paid out in cash within 14 days"*
+example - *"Credits below 99.0% uptime are paid out in cash within 14 days"*
 against a corpus that says credits are **never paid in cash**. Every content word
 is present, so token overlap is 1.0.
 
-This module adds the missing half. It is still not an NLI model — no LLM is
-available here — but it targets the three contradiction shapes that actually
+This module adds the missing half. It is still not an NLI model - no LLM is
+available here - but it targets the three contradiction shapes that actually
 occur in factual documentation, which is a far better use of a heuristic than a
 generic similarity score:
 
-  1. **Polarity flip** — the context negates something the claim asserts, or vice
+  1. **Polarity flip** - the context negates something the claim asserts, or vice
      versa ("never paid in cash" vs "paid out in cash").
-  2. **Numeric mismatch** — the claim reuses an entity from the context but
+  2. **Numeric mismatch** - the claim reuses an entity from the context but
      attaches a different number to it ("400 days" vs "40 days").
-  3. **Antonym substitution** — a claim that swaps one member of a known opposed
+  3. **Antonym substitution** - a claim that swaps one member of a known opposed
      pair while keeping the surrounding words ("enabled" for "disabled",
      "supported" for "unsupported").
 

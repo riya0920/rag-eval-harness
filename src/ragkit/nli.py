@@ -1,17 +1,16 @@
-"""An NLI judge — the fix for the limit the rule-based one could not reach.
+"""An NLI judge - the fix for the limit the rule-based one could not reach.
 
 The rule-based detector in `contradiction.py` handles polarity, numbers and a
 hand-listed antonym table. Its measured boundary is **implication
 contradiction**: a claim like *"Starter tier customers also receive a named
 technical account manager"* against a corpus that grants a TAM only on Scale
 above $250k. There is no negation to flip, no antonym, and no conflicting number
-in the claim itself — the contradiction is an inference, and surface rules cannot
+in the claim itself - the contradiction is an inference, and surface rules cannot
 reach it.
 
 This module runs a real natural-language-inference model locally
 (`typeform/distilbert-base-uncased-mnli`, ~250 MB, CPU). **No API key and no
-network at inference time**, so the eval gate stays free and runnable in CI —
-which was the original reason for avoiding a hosted judge.
+network at inference time**, so the eval gate stays free and runnable in CI - which was the original reason for avoiding a hosted judge.
 
 ## IT DOES NOT WORK, and the measurement is the point
 
@@ -27,7 +26,7 @@ labels:
 
 **Its best configuration ties the rule-based judge and never beats it**, and it
 gets there only by being tuned so tightly that it almost never fires. Worse: at
-*every* setting, including the best one, it **still misses `f054`** — the
+*every* setting, including the best one, it **still misses `f054`** - the
 implication contradiction it was built to catch. It buys nothing and costs
 false positives at any looser threshold.
 

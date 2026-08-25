@@ -2,13 +2,13 @@
 
 Three metrics:
 
-* **Claim-level faithfulness** — is every claim in the answer supported by the
+* **Claim-level faithfulness** - is every claim in the answer supported by the
   retrieved context? Scored per claim, not per answer, because "mostly faithful"
   hides exactly the one fabricated sentence that matters.
-* **Key-point coverage** — did the answer contain the facts the golden set says
+* **Key-point coverage** - did the answer contain the facts the golden set says
   it must? An unfaithful answer and an incomplete answer fail differently and a
   single score conflates them.
-* **Refusal accuracy** — on unanswerable questions, did it refuse?
+* **Refusal accuracy** - on unanswerable questions, did it refuse?
 
 **The judge is validated against human labels**, and this is the part the spec
 cares about. A judge whose agreement with a human is unmeasured is a random
@@ -17,7 +17,7 @@ against `eval/human_labels.jsonl`, and the README reports where they disagree.
 
 **No LLM is available in this environment**, so the judge here is a lexical
 entailment heuristic rather than a model. That is a real limitation and it is
-stated everywhere the numbers appear — but the *methodology* (hand-label a
+stated everywhere the numbers appear - but the *methodology* (hand-label a
 sample, compute agreement, inspect the disagreements, report the bias) is the
 transferable part, and it is identical whichever judge sits underneath.
 """
@@ -62,7 +62,7 @@ def claim_supported(claim: str, context_texts, threshold: float = 0.65) -> bool:
 
     Token-overlap entailment: what fraction of the claim's content words appear
     in any single context chunk. Requiring one CHUNK to contain the claim rather
-    than the union of all chunks is deliberate — a claim assembled from fragments
+    than the union of all chunks is deliberate - a claim assembled from fragments
     of three different documents is exactly the kind of plausible fabrication
     this metric exists to catch.
     """

@@ -10,8 +10,8 @@ factual category**. That is not evidence that retrieval is solved; it is evidenc
 that the factual questions are too easy for a corpus this size, where the answer
 document is often the only one containing the key term.
 
-The categories that still discriminate are **multi-hop** (0.867–1.000) and
-**ambiguous** (0.625–0.708). Those are the numbers worth reading, and the
+The categories that still discriminate are **multi-hop** (0.867-1.000) and
+**ambiguous** (0.625-0.708). Those are the numbers worth reading, and the
 per-category columns exist in the table so nobody quotes the saturated average.
 
 **What this means for the winner.** `bm25_chunk160` "wins" overall by 0.017
@@ -23,8 +23,7 @@ corpus, and I would not ship a retrieval decision on this evidence.
 
 ## 2. The dense retriever is lexical, not semantic
 
-`HashingSVDEmbedder` is TF-IDF over hashed uni/bigrams with a truncated SVD —
-i.e. LSA. It captures corpus co-occurrence, so it will connect "credential" to
+`HashingSVDEmbedder` is TF-IDF over hashed uni/bigrams with a truncated SVD - i.e. LSA. It captures corpus co-occurrence, so it will connect "credential" to
 "service key" if those words co-occur *in this corpus*. It has no world
 knowledge. So:
 
@@ -45,8 +44,8 @@ is ready for them, but no generation number is reported anywhere in this repo
 because none has been measured.
 
 Specifically, **refusal accuracy on the 8 unanswerable questions is unmeasured.**
-Retrieval metrics deliberately exclude those examples — a retriever cannot be
-scored for correctly finding nothing — so the entire unanswerable category is
+Retrieval metrics deliberately exclude those examples - a retriever cannot be
+scored for correctly finding nothing - so the entire unanswerable category is
 currently carried by the golden set and not by any reported metric.
 
 ## 4. The golden set was written by one person, who also wrote the corpus
@@ -66,9 +65,9 @@ consequences:
 
 Every iteration on the retriever is scored against the same 35 examples. After
 enough iterations the harness measures "fit to this golden set", not retrieval
-quality. Nothing in this repo currently detects that. The mitigation — a
+quality. Nothing in this repo currently detects that. The mitigation - a
 held-out slice never used for tuning, plus periodic regeneration of the golden
-set — is a roadmap item, not a thing that exists.
+set - is a roadmap item, not a thing that exists.
 
 ## 6. Single language, single domain, no distribution shift
 

@@ -2,19 +2,18 @@
 
 **There is no LLM API key in this environment**, so the default generator is
 extractive: it selects and stitches the sentences from the retrieved context that
-best cover the question. That is a real, if unsophisticated, generator — it can
+best cover the question. That is a real, if unsophisticated, generator - it can
 be wrong, it can hallucinate by selecting the wrong sentence, and it can refuse.
 
 The point is not that the generator is good. The point is that the **evaluation
 harness around it is real**, and swapping in an API-backed generator is one class
-that implements `generate(question, chunks) -> Answer`. Everything downstream —
-faithfulness, coverage, refusal accuracy, the judge, cost accounting — works
+that implements `generate(question, chunks) -> Answer`. Everything downstream - faithfulness, coverage, refusal accuracy, the judge, cost accounting - works
 unchanged.
 
 The extractive generator has one property that makes it a useful baseline rather
 than a placeholder: because every sentence it emits is copied verbatim from the
 context, its faithfulness is near-perfect BY CONSTRUCTION. That makes it the
-right control for a faithfulness metric — if the metric cannot score a
+right control for a faithfulness metric - if the metric cannot score a
 copy-paste generator highly, the metric is broken.
 """
 from __future__ import annotations

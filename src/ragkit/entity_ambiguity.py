@@ -5,7 +5,7 @@
 `clarify.py` detects ambiguity between two **numbers** and reaches 5 of the 10
 ambiguous questions. This module goes after the other 5, and they turn out to
 share a shape the quantity signal cannot see because **it is not in the retrieved
-text at all — it is in the question**:
+text at all - it is in the question**:
 
     a005  "Can I change it after creation?"          <- "it" has no antecedent
     a008  "How many can I have?"                     <- how many *what*
@@ -21,8 +21,7 @@ retrieved chunks recovers it, because the missing information was never sent.
 
 **Dangling referent (question-side).** A pronoun or quantifier with no noun
 phrase anywhere in the question to bind it. This costs two regexes over the
-question and no retrieval at all, which makes it the cheapest possible check —
-it can run *before* the retriever does, and on a question it flags there is no
+question and no retrieval at all, which makes it the cheapest possible check - it can run *before* the retriever does, and on a question it flags there is no
 point retrieving at all.
 
 **Competing definitions (retrieval-side).** The entity analogue of competing
@@ -36,7 +35,7 @@ of competition is the **document**, not the mention.
 
 These features were designed **with the ten ambiguous questions visible**. That
 makes the recall figure an upper bound, not an estimate of how it would do on
-questions it has not seen, and no amount of cross-validation fixes it — the
+questions it has not seen, and no amount of cross-validation fixes it - the
 leakage is in the feature design, not the threshold.
 
 What is *not* circular is the negative class. The 93 factual, multi-hop and
@@ -48,7 +47,7 @@ headline below is precision rather than recall.
 The clean fix is a larger positive class written by someone who has not seen the
 detector. Authoring 40 more myself, from my own taxonomy of what "ambiguous"
 means, would make the evaluation *more* circular while making the number look
-better — which is the trade this module declines to take.
+better - which is the trade this module declines to take.
 """
 from __future__ import annotations
 
@@ -282,7 +281,7 @@ class CombinedPolicy(ClarifyingRetrievalPolicy):
 def _ask(question: str, sig: dict) -> str:
     d = sig["dangling"]
     if d["dangling_pronoun"] or d["bare_quantifier"]:
-        return ("I want to make sure I answer the right thing — what specifically "
+        return ("I want to make sure I answer the right thing - what specifically "
                 "are you asking about?")
     docs = sig["definitions"]["docs"]
     if len(docs) > 1:
